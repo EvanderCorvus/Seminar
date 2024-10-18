@@ -86,7 +86,7 @@ class SoftActorCritic(nn.Module):
         self.gamma = config['future_discount_factor']
         self.polyak_tau = config['polyak_tau']
         self.device = device
-        self.loss = nn.MSELoss()
+        self.loss = nn.MSELoss(reduction='none')
         self.grad_clip_critic = config["grad_clip_critic"]
         self.grad_clip_actor = config["grad_clip_actor"]
 
@@ -115,7 +115,10 @@ class SoftActorCritic(nn.Module):
 
     def update(self, sample):
         # Sample from the buffer
-        state, action, reward, next_state = sample
+        state = sample['obs'].to(self.device)
+        action = sample['action'].to(self.device)
+        reward = sample['reward'].to(self.device)
+        next_state = sample['next_obs'].to(self.device)
 
         # Update the critic
         q1, q2 = self.critic(state, action)
@@ -129,7 +132,8 @@ class SoftActorCritic(nn.Module):
 
             target_q = reward + self.gamma * (next_q - self.entropy_coeff * log_prob)
 
-        critic_loss = self.loss(q1, target_q) + self.loss(q2, target_q)
+        td_error_batch = self.loss(q1, target_q) + self.loss(q2, target_q)
+        critic_loss = td_error_batch.mean()
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
@@ -152,4 +156,4 @@ class SoftActorCritic(nn.Module):
 
         self._update_target_network()
 
-        return actor_loss.item(), critic_loss.item(), log_prob.mean().item()
+        return actor_loss.item(), critic_loss.item(), log_prob.mean().item(), td_error_batch

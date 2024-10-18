@@ -1,5 +1,5 @@
 from utils.utils import *
-from environemnt import MultiAgentEnv
+from environment import ActiveBrownianEnv
 from utils.train_utils import train_episode
 # from agents import SAC_Agent
 from models import SoftActorCritic
@@ -33,15 +33,16 @@ def train():
     train_config = hyperparams_dict('Training', hparam_path)
 
     # Initialize Environment, Agents, and Replay Buffer
-    env = MultiAgentEnv(env_config)
+    env = ActiveBrownianEnv(env_config)
     agent = SoftActorCritic(
         agent_config,
         device
     ).to(device)
 
-    replay_buffer = MultiAgentReplayBuffer(
+    replay_buffer = SingleAgentPrioritizedReplayBuffer(
         train_config['buffer_size'],
-        env_config['n_agents']
+        train_config['alpha'],
+        train_config['beta']
     )
     # Logging
     if writer_flag:
@@ -67,7 +68,7 @@ def train():
 
         if episode % train_config['save_freq'] == 0:
             np.save(f'{experiments_dir}/{experiment_number}/train_states.npy', np.array(States).squeeze())
-            tr.save(agents, f'{experiments_dir}/{experiment_number}/agents.pth')
+            tr.save(agent, f'{experiments_dir}/{experiment_number}/agents.pth')
             if writer_flag: writer.flush()
 
 
@@ -75,7 +76,7 @@ def train():
     if writer_flag: writer.close()
 
     np.save(f'{experiments_dir}/{experiment_number}/train_states.npy', np.array(States).squeeze())
-    tr.save(agents, f'{experiments_dir}/{experiment_number}/agents.pth')
+    tr.save(agent, f'{experiments_dir}/{experiment_number}/agents.pth')
     max_memory_used = tr.cuda.max_memory_allocated() / 1024 ** 3
     print(f'Maximum Memory Allocated: {max_memory_used: .2f} GB')
 

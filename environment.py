@@ -7,7 +7,7 @@ from utils.utils import time_it
 
 
 # ToDo: See if i can just use the add method in rb and then the data doesn't need a batch dim
-class MultiAgentEnv(gym.Env):
+class ActiveBrownianEnv(gym.Env):
     def __init__(self, config):
         super().__init__()
         self.size = config["size"]
@@ -78,7 +78,7 @@ class MultiAgentEnv(gym.Env):
 
         self.obs = next_obs
 
-        return next_obs, e, nns, dist
+        return next_obs, e
 
 
     def _get_reward(self):

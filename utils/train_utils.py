@@ -6,7 +6,7 @@ from numba import njit, jit
 
 def train_episode(
         env,
-        agents,
+        agent,
         replay_buffer,
         current_episode,
         config,
@@ -17,7 +17,7 @@ def train_episode(
 
     for step in range(config['n_steps']):
         # Perform Actions
-        actions = np.array([agents[f'agent_{i}'].act(observation[i]) for i in range(env.n_agents)])
+        actions = np.array([agent.act(observation)])
 
         # Environment Steps
         next_obs, rewards, velocities = env.step(actions, config['frame_skip'])
@@ -41,14 +41,19 @@ def train_episode(
             # Update Agents
             loss_actors, loss_critics, entropies = [], [], []
             for _ in range(config['n_optim']):
-                sample = replay_buffer.sample_agent_batches(
-                    min(config['batch_size'], len(replay_buffer))
+                sample, info = replay_buffer.sample(
+                    min(config['batch_size'], len(replay_buffer)),
+                    return_info=True
                 )
-                for i in range(env.n_agents):
-                    loss_actor, loss_critic, entropy = agents[f'agent_{i}'].update(sample[i])
-                    loss_actors.append(loss_actor)
-                    loss_critics.append(loss_critic)
-                    entropies.append(entropy)
+                loss_actor, loss_critic, entropy, td_error = agent.update(sample)
+
+                replay_buffer.update_priority(
+                    info['indices'],
+                    td_error
+                )
+                loss_actors.append(loss_actor)
+                loss_critics.append(loss_critic)
+                entropies.append(entropy)
                 if writer is not None:
                     writer.add_scalar(
                         'Loss/Actors',
