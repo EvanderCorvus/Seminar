@@ -12,23 +12,39 @@ from datetime import datetime
 
 # from torch.profiler import profile, record_function, ProfilerActivity
 
-
+@time_it()
 def train():
     # Data
     print('Testing at', datetime.now().strftime("%d-%m-%Y %H:%M:%S"))
-    if not tr.cuda.is_available(): raise Exception('CUDA unaviable')
     dotenv.load_dotenv()
     experiments_dir = os.getenv('experiment_dir')
     hparam_path = os.getenv('hparam_path')
     writer_flag = os.getenv('writer_flag')
-    device = tr.device('cuda' if tr.cuda.is_available() else 'cpu')
+
+    # Check for CUDA or MPS availability
+    if tr.backends.mps.is_available():
+        device = tr.device("mps")
+        print("Using MPS (Metal Performance Shaders) on Apple Silicon")
+    elif tr.cuda.is_available():
+        device = tr.device("cuda")
+        print("Using CUDA")
+    else:
+        device = tr.device("cpu")
+        print("Using CPU")
+
     experiment_number = len(os.listdir(experiments_dir)) + 1
     writer = None
-    num_cuda_devices = tr.cuda.device_count()
-    print(f"Number of CUDA devices available: {num_cuda_devices}")
+
+    # Device count (for CUDA only, MPS always has 1 device)
+    if tr.cuda.is_available():
+        num_cuda_devices = tr.cuda.device_count()
+        print(f"Number of CUDA devices available: {num_cuda_devices}")
+    else:
+        print("CUDA is not available on this system")
 
     # Configuration
     env_config = hyperparams_dict("Environment", hparam_path)
+    print(env_config)
     agent_config = hyperparams_dict("Agent", hparam_path)
     train_config = hyperparams_dict('Training', hparam_path)
 
@@ -53,18 +69,15 @@ def train():
              writer.add_text(key, str(value))
 
     States = []
-    decay_rate = tr.tensor(
-        train_config['entropy_coefficient_decay']
-    ).to(device)
+
 
     for episode in tqdm(range(train_config['n_episodes']), leave=False):
-        states = train_episode(
+        states, _ = train_episode(
             env, agent, replay_buffer,
             episode, train_config,
             writer
         )
         States += states
-        agent.entropy_coeff *= decay_rate
 
         if episode % train_config['save_freq'] == 0:
             np.save(f'{experiments_dir}/{experiment_number}/train_states.npy', np.array(States).squeeze())
@@ -82,4 +95,7 @@ def train():
 
 
 if __name__ == '__main__':
+    #tr.set_precision(32)
+    tr.set_default_dtype(tr.float32)
+    
     train()

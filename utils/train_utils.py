@@ -13,23 +13,24 @@ def train_episode(
         writer=None
     ):
     observation = env.reset()
-    log_states = [env.states]
-
+    log_states = [env.state]
+    reward_total = 0
     for step in range(config['n_steps']):
         # Perform Actions
-        actions = np.array([agent.act(observation)])
+        actions = np.array(agent.act(observation))
 
         # Environment Steps
-        next_obs, rewards, velocities = env.step(actions, config['frame_skip'])
-
+        next_obs, rewards, e, done = env.step(actions, config['frame_skip'])
         replay_buffer.add_transition(
             observation,
             actions,
             rewards,
-            next_obs
+            next_obs,
+            done
         )
+        reward_total += rewards
         observation = next_obs
-        log_states.append(env.states)
+        log_states.append(env.state)
         env.global_step += 1
         if writer is not None:
             writer.add_scalar(
@@ -37,18 +38,16 @@ def train_episode(
                 rewards.mean(),
                 config['n_steps'] * current_episode + step
             )
-        if step >= config['n_optim']:
+        if step >= config['batch_size']:
             # Update Agents
             loss_actors, loss_critics, entropies = [], [], []
             for _ in range(config['n_optim']):
-                sample, info = replay_buffer.sample(
-                    min(config['batch_size'], len(replay_buffer)),
-                    return_info=True
-                )
+                #print(replay_buffer.sample(config['batch_size']))
+                sample, info, weights = replay_buffer.sample(config['batch_size'])
                 loss_actor, loss_critic, entropy, td_error = agent.update(sample)
 
                 replay_buffer.update_priority(
-                    info['indices'],
+                    info,
                     td_error
                 )
                 loss_actors.append(loss_actor)
@@ -71,7 +70,8 @@ def train_episode(
                         env.train_step
                     )
                 env.train_step += 1
-    return log_states
+        if done.any(): break
+    return log_states, reward_total
 
 
 def test_episode(
@@ -81,55 +81,14 @@ def test_episode(
         writer=None
 ):
     observations = env.reset()
-    list_states = [env.states]
+    list_states = [env.state]
     for step in tqdm(range(config['test_steps']), leave=False):
         # actions = np.zeros((env.n_agents, 1), dtype=np.float64)
-        actions = np.array([agents[f'agent_{i}'].act(observations[i]) for i in range(env.n_agents)])
-        next_obs, e, _, _ = env.active_brownian_rollout(actions, config['frame_skip'])
+        actions = agents.act(observations, deterministic=True)
+        next_obs, e  = env.active_brownian_rollout(actions, config['frame_skip'])
         observations = next_obs
-        list_states.append(env.states)
-        if writer is not None:
-            writer.add_scalar(
-                'Test/Polar Order',
-                group_polar_order(e),
-                step,
-            )
-            writer.add_scalar(
-                'Test/Angular Momentum',
-                group_angular_momentum(e, env.states),
-                step,
-            )
-            writer.add_scalar(
-                'Test/Group Average MSD',
-                group_average_MSD(list_states),
-                step,
-            )
-        else:
-            print('No writer')
+        list_states.append(env.state)
+        if env.goal_space.contains(env.state): break
 
     return list_states
 
-
-def group_polar_order(velocities):
-    return np.linalg.norm(np.mean(velocities, axis=0))
-
-
-def group_angular_momentum(velocities, positions):
-    mean_pos = np.mean(positions, axis=0)
-    relative_positions = positions - mean_pos
-    # 2D cross product
-    angular_momentum = relative_positions[:, 0] * velocities[:, 1] - relative_positions[:, 1] * velocities[:, 0]
-    return np.linalg.norm(np.mean(angular_momentum, axis=0))
-
-
-# State Shape: (time_step, n_agents, 2)
-
-def group_average_MSD(states):
-    states_array = np.array(states)
-    initial_positions = states_array[0]
-
-    squared_displacement = np.linalg.norm(
-        (states_array[1:] - initial_positions),
-        axis=-1
-    ) ** 2
-    return np.mean(squared_displacement)

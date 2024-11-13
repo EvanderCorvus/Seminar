@@ -20,7 +20,7 @@ class Critic(nn.Module):
         )
 
     def forward(self, state, action):
-        x = tr.cat([state, action], dim=1)
+        x = tr.cat([state, action], dim=-1)
         return self.net(x)
 
 
@@ -82,6 +82,7 @@ class SoftActorCritic(nn.Module):
     def __init__(self, config: dict, device):
         super().__init__()
         self.entropy_coeff = config['entropy_coeff']
+        
         # self.target_entropy = -config['action_dim']
         self.gamma = config['future_discount_factor']
         self.polyak_tau = config['polyak_tau']
@@ -119,6 +120,7 @@ class SoftActorCritic(nn.Module):
         action = sample['action'].to(self.device)
         reward = sample['reward'].to(self.device)
         next_state = sample['next_obs'].to(self.device)
+        done = sample['done'].to(self.device)
 
         # Update the critic
         q1, q2 = self.critic(state, action)
@@ -130,7 +132,7 @@ class SoftActorCritic(nn.Module):
             assert next_q.shape == log_prob.shape, f"Next Q shape: {next_q.shape}, log_prob shape: {log_prob.shape}"
             assert next_q.shape == reward.shape, f"Next Q shape: {next_q.shape}, reward shape: {reward.shape}"
 
-            target_q = reward + self.gamma * (next_q - self.entropy_coeff * log_prob)
+            target_q = reward + self.gamma*(tr.ones(done.shape).to(self.device)-done) * (next_q - self.entropy_coeff * log_prob)
 
         td_error_batch = self.loss(q1, target_q) + self.loss(q2, target_q)
         critic_loss = td_error_batch.mean()
