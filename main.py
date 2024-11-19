@@ -57,6 +57,7 @@ def train():
 
     replay_buffer = SingleAgentPrioritizedReplayBuffer(
         train_config['buffer_size'],
+        train_config['batch_size'],
         train_config['alpha'],
         train_config['beta']
     )
