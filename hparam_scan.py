@@ -23,29 +23,29 @@ os.environ["RAY_TMPDIR"] = work_dir + '/tmp'
 
 def objective(config):
     try:
-        # Device Konfiguration
-        if tr.backends.mps.is_available():
-            device = tr.device("mps")
-            print("Using MPS (Metal Performance Shaders) on Apple Silicon")
-        elif tr.cuda.is_available():
-            device = tr.device("cuda")
-            print("Using CUDA")
-        else:
-            device = tr.device("cpu")
-            print("Using CPU")
+        # # Device Konfiguration
+        # if tr.backends.mps.is_available():
+        #     device = tr.device("mps")
+        #     print("Using MPS (Metal Performance Shaders) on Apple Silicon")
+        # elif tr.cuda.is_available():
+        #     device = tr.device("cuda")
+        #     print("Using CUDA")
+        # else:
+        #     device = tr.device("cpu")
+        #     print("Using CPU")
+
+        device = tr.device("cpu")
 
         env_config = hyperparams_dict("Environment", hparam_path)
         train_env = ActiveBrownianEnv(env_config)
-        obs_dim = env_config['state_dim']*env_config['n_neighbors']+env_config['state_dim']
-        config['obs_dim'] = obs_dim
         agents = SoftActorCritic(
             config,
             device
         ).to(device)
         
         replay_buffer = SingleAgentPrioritizedReplayBuffer(
-            config['buffer_size'],
-            config['batch_size'],
+            train_config['buffer_size'],
+            train_config['batch_size'],
         )
         last_reward = 0
         for epoch in range(int(train_config['n_episodes'])):
@@ -82,12 +82,8 @@ scheduler = ASHAScheduler(
 
 # Angepasste Ressourcenkonfiguration für Apple Silicon
 resources_per_trial = {
-    "cpu": 2,  # Anzahl der CPU-Kerne
+    "cpu": 1,  # Anzahl der CPU-Kerne
 }
-
-# Füge MPS nur hinzu, wenn verfügbar
-if tr.backends.mps.is_available():
-    resources_per_trial["mps"] = 1  # Oder entfernen Sie dies, wenn Sie MPS nicht explizit zuweisen möchten
 
 tuner = tune.Tuner(
     tune.with_resources(
@@ -100,7 +96,7 @@ tuner = tune.Tuner(
         search_alg=algo,
         num_samples=train_config['num_samples'],
         scheduler=scheduler,
-        trial_dirname_creator=costom_trial_dirname
+        trial_dirname_creator=costom_trial_dirname,
     ),
     run_config=train.RunConfig(
         verbose=1,
@@ -109,9 +105,13 @@ tuner = tune.Tuner(
     param_space=config
 )
 
+
+hparam_path = os.path.join(work_dir, "hyperparameters.ini")
+
 # Initialisiere Ray mit angepasster Speicherkonfiguration
 ray.init(
-    object_store_memory=int(2e9),  # 2GB Speicher
+    _temp_dir="/tmp/ray",
+    object_store_memory=int(2e9),
     _system_config={
         "object_spilling_config": json.dumps({
             "type": "filesystem",
@@ -123,7 +123,11 @@ ray.init(
 )
 
 results = tuner.fit()
-fname = hparam_path + '/best_hyperparams.json'
+
+results_dir = os.path.join(work_dir, "results")
+os.makedirs(results_dir, exist_ok=True)
+fname = os.path.join(results_dir, 'best_hyperparams.json')
+
 with open(fname, 'w') as f:
     json.dump(results.get_best_result().config, f)
 
